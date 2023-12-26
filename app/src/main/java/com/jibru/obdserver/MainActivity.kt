@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeGesturesPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -44,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.jibru.obdserver.ui.theme.ObdServerTheme
 import org.apache.commons.lang.StringEscapeUtils
 import org.apache.commons.lang.StringUtils
@@ -172,25 +176,27 @@ fun ObdServer(uiState: UiState, eventHandler: ObdServerEventHandler) {
 private fun ServerTab(uiState: UiState, eventHandler: ObdServerEventHandler) {
     val running by ObdServerService.isServerRunning.collectAsState()
     Column(modifier = Modifier.fillMaxSize()) {
-        val state by ObdServerService.serverLogsState.collectAsState()
-        val scrollState = rememberScrollState()
-        LaunchedEffect(Unit) {
-            snapshotFlow { state.length }
-                .collect {
-                    scrollState.scrollTo(100)
+        Text("Log:")
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            items(ObdServerService.serverLogs.size) {
+                val item = ObdServerService.serverLogs.getOrNull(it)
+                if (item != null) {
+                    Text(
+                        text = item,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                    )
                 }
+            }
         }
-        Text(
-            "ServerState:$state", modifier = Modifier
-                .weight(1f)
-                .verticalScroll(scrollState)
-        )
         Row {
             Button(onClick = eventHandler::onStartStopClicked, enabled = uiState.hasPermissions) {
                 Text(if (running) "Stop" else "Start")
             }
 
-            Button(onClick = { ObdServerService.serverLogsState.value = "" }, enabled = uiState.hasPermissions) {
+            Button(onClick = { ObdServerService.serverLogs.clear() }, enabled = uiState.hasPermissions) {
                 Text("Clear Log")
             }
         }
@@ -227,7 +233,7 @@ private fun Responses(uiState: UiState, eventHandler: ObdServerEventHandler) {
                         Text(label, modifier = Modifier.width(64.dp))
                         TextField(
                             value = StringEscapeUtils.escapeJava(value),
-                            onValueChange = { t -> Defaults.defaults[key]?.set(index, StringEscapeUtils.escapeJava(t)) },
+                            onValueChange = { t -> Defaults.defaults[key]?.set(index, StringEscapeUtils.unescapeJava(t)) },
                             modifier = Modifier.weight(1f)
                         )
                     }

@@ -23,6 +23,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import androidx.compose.runtime.mutableStateListOf
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
@@ -99,11 +100,11 @@ class ObdServerService : Service() {
         if (permission == PackageManager.PERMISSION_GRANTED) {
             startInForeground()
 
-            serverLogsState.value = "Opening GATT server...\n"
+            serverLogs.add("Opening GATT server...")
             server = manager.openGattServer(applicationContext, SampleServerCallback())
             server.addService(service)
         } else {
-            serverLogsState.value = "Missing connect permission\n"
+            serverLogs.add("Missing connect permission")
             stopSelf()
         }
 
@@ -135,7 +136,7 @@ class ObdServerService : Service() {
 
     @SuppressLint("MissingPermission")
     fun startAdvertising() {
-        serverLogsState.value += "Start advertising\n"
+        serverLogs.add("Start advertising")
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -154,7 +155,7 @@ class ObdServerService : Service() {
 
     @SuppressLint("MissingPermission")
     fun stopAdvertising() {
-        serverLogsState.value += "Stop advertising\n"
+        serverLogs.add("Stop advertising")
         advertiser.stopAdvertising(SampleAdvertiseCallback)
         isServerRunning.value = false
         stopSelf()
@@ -198,9 +199,11 @@ class ObdServerService : Service() {
             status: Int,
             newState: Int,
         ) {
-            serverLogsState.value += "Connection state change: " +
-                    "${newState.toConnectionStateString()}.\n" +
-                    "> New device: ${device.name} ${device.address}\n"
+            serverLogs.add(
+                "Connection state change: " +
+                        "${newState.toConnectionStateString()}.\n" +
+                        "> New device: ${device.name} ${device.address}"
+            )
             // You should keep a list of connected device to manage them
         }
 
@@ -213,8 +216,8 @@ class ObdServerService : Service() {
             offset: Int,
             value: ByteArray,
         ) {
-            serverLogsState.value += "Characteristic Write request: $requestId\n" +
-                    "Data: ${String(value)} (offset $offset)\n"
+            serverLogs.add("Characteristic Write request: $requestId")
+            serverLogs.add(" Data: ${String(value)} (offset $offset)")
             // Here you should apply the write of the characteristic and notify connected
             // devices that it changed
 
@@ -244,8 +247,8 @@ class ObdServerService : Service() {
             offset: Int,
             value: ByteArray
         ) {
-            serverLogsState.value += "Descriptor Write request: $requestId\n" +
-                    "Data: ${String(value)} (offset $offset)\n"
+            serverLogs.add("Descriptor Write request: $requestId")
+            serverLogs.add(" Data: ${String(value)} (offset $offset)")
             // Here you should apply the write of the characteristic and notify connected
             // devices that it changed
 
@@ -273,8 +276,8 @@ class ObdServerService : Service() {
             characteristic: BluetoothGattCharacteristic?,
         ) {
             super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
-            serverLogsState.value += "Characteristic Read request: $requestId (offset $offset)\n"
-            val data = serverLogsState.value.toByteArray()
+            serverLogs.add("Characteristic Read request: $requestId (offset $offset)")
+            val data = serverLogs.last().toByteArray()
             val response = data.copyOfRange(offset, data.size)
             server.sendResponse(
                 device,
@@ -287,8 +290,8 @@ class ObdServerService : Service() {
 
         override fun onDescriptorReadRequest(device: BluetoothDevice, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor) {
             super.onDescriptorReadRequest(device, requestId, offset, descriptor)
-            serverLogsState.value += "Descriptor Read request: $requestId (offset $offset)\n"
-            val data = serverLogsState.value.toByteArray()
+            serverLogs.add("Descriptor Read request: $requestId (offset $offset)")
+            val data = serverLogs.last().toByteArray()
             val response = data.copyOfRange(offset, data.size)
             server.sendResponse(
                 device,
@@ -300,17 +303,17 @@ class ObdServerService : Service() {
         }
 
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
-            serverLogsState.value += "\nMTU change request: $mtu\n"
+            serverLogs.add("MTU change request: $mtu")
         }
     }
 
     object SampleAdvertiseCallback : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            serverLogsState.value += "\nStarted advertising\n"
+            serverLogs.add("Started advertising")
         }
 
         override fun onStartFailure(errorCode: Int) {
-            serverLogsState.value += "\nFailed to start advertising: $errorCode\n"
+            serverLogs.add("Failed to start advertising: $errorCode")
         }
     }
 
@@ -321,11 +324,11 @@ class ObdServerService : Service() {
 
         // Same as the service but for the characteristic
         val RW_UUID: UUID = UUID.fromString("00001111-0000-1000-8000-00805f9b34fb")
-        val NTF_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        val NTF_UUID: UUID = UUID.fromString("00001112-0000-1000-8000-00805f9b34fb")
 
         // Important: this is just for simplicity, there are better ways to communicate between
         // a service and an activity/view
-        val serverLogsState: MutableStateFlow<String> = MutableStateFlow("")
+        val serverLogs = mutableStateListOf<String>()
         val isServerRunning = MutableStateFlow(false)
 
         private const val CHANNEL = "gatt_server_channel"
