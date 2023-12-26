@@ -6,6 +6,7 @@ import android.app.Service
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
@@ -27,7 +28,6 @@ import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.getSystemService
-import java.util.*
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +35,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.util.*
+
 
 data class ReceivedMessage(
     val bluetoothDevice: BluetoothDevice,
@@ -61,14 +63,22 @@ class ObdServerService : Service() {
     val notifyCharacteristics = BluetoothGattCharacteristic(
         NTF_UUID,
         BluetoothGattCharacteristic.PROPERTY_BROADCAST or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-        0,
-    )
+        BluetoothGattDescriptor.PERMISSION_READ,
+    ).also { ch ->
+        ch.addDescriptor(
+            BluetoothGattDescriptor(
+                NTF_UUID,
+                BluetoothGattDescriptor.PERMISSION_WRITE or BluetoothGattDescriptor.PERMISSION_READ
+            )
+        )
+    }
+
     private val service =
         BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY).also {
             it.addCharacteristic(
                 BluetoothGattCharacteristic(
                     RW_UUID,
-                    BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_READ,
+                    BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
                     BluetoothGattCharacteristic.PERMISSION_WRITE or BluetoothGattCharacteristic.PERMISSION_READ,
                 ),
             )
@@ -225,6 +235,37 @@ class ObdServerService : Service() {
             }
         }
 
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray
+        ) {
+            serverLogsState.value += "Descriptor Write request: $requestId\n" +
+                    "Data: ${String(value)} (offset $offset)\n"
+            // Here you should apply the write of the characteristic and notify connected
+            // devices that it changed
+
+            if (descriptor.uuid == RW_UUID) {
+                responseCommands.tryEmit(
+                    ReceivedMessage(device, value.copyOf())
+                )
+            }
+            // If response is needed reply to the device that the write was successful
+            if (responseNeeded) {
+                server.sendResponse(
+                    device,
+                    requestId,
+                    BluetoothGatt.GATT_SUCCESS,
+                    0,
+                    null,
+                )
+            }
+        }
+
         override fun onCharacteristicReadRequest(
             device: BluetoothDevice?,
             requestId: Int,
@@ -233,6 +274,20 @@ class ObdServerService : Service() {
         ) {
             super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
             serverLogsState.value += "Characteristic Read request: $requestId (offset $offset)\n"
+            val data = serverLogsState.value.toByteArray()
+            val response = data.copyOfRange(offset, data.size)
+            server.sendResponse(
+                device,
+                requestId,
+                BluetoothGatt.GATT_SUCCESS,
+                offset,
+                response,
+            )
+        }
+
+        override fun onDescriptorReadRequest(device: BluetoothDevice, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor) {
+            super.onDescriptorReadRequest(device, requestId, offset, descriptor)
+            serverLogsState.value += "Descriptor Read request: $requestId (offset $offset)\n"
             val data = serverLogsState.value.toByteArray()
             val response = data.copyOfRange(offset, data.size)
             server.sendResponse(
@@ -266,7 +321,7 @@ class ObdServerService : Service() {
 
         // Same as the service but for the characteristic
         val RW_UUID: UUID = UUID.fromString("00001111-0000-1000-8000-00805f9b34fb")
-        val NTF_UUID: UUID = UUID.fromString("00001112-0000-1000-8000-00805f9b34fb")
+        val NTF_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         // Important: this is just for simplicity, there are better ways to communicate between
         // a service and an activity/view
