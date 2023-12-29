@@ -63,15 +63,10 @@ class ObdServerService : Service() {
 
     val notifyCharacteristics = BluetoothGattCharacteristic(
         NTF_UUID,
-        BluetoothGattCharacteristic.PROPERTY_BROADCAST or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-        BluetoothGattDescriptor.PERMISSION_READ,
+        BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+        BluetoothGattCharacteristic.PERMISSION_READ,
     ).also { ch ->
-        ch.addDescriptor(
-            BluetoothGattDescriptor(
-                NTF_UUID,
-                BluetoothGattDescriptor.PERMISSION_WRITE or BluetoothGattDescriptor.PERMISSION_READ
-            )
-        )
+        ch.addDescriptor(BluetoothGattDescriptor(BT_NTF_UUID, BluetoothGattDescriptor.PERMISSION_WRITE or BluetoothGattDescriptor.PERMISSION_READ))
     }
 
     private val service =
@@ -99,10 +94,7 @@ class ObdServerService : Service() {
 
         if (permission == PackageManager.PERMISSION_GRANTED) {
             startInForeground()
-
-            serverLogs.add("Opening GATT server...")
-            server = manager.openGattServer(applicationContext, SampleServerCallback())
-            server.addService(service)
+            initGattServer()
         } else {
             serverLogs.add("Missing connect permission")
             stopSelf()
@@ -129,6 +121,19 @@ class ObdServerService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun initGattServer() {
+        kotlin.runCatching {
+            serverLogs.add("Opening GATT server...")
+            if (!this::server.isInitialized) {
+                server = manager.openGattServer(applicationContext, SampleServerCallback())
+                server.addService(service)
+            }
+        }.onFailure {
+            serverLogs.add("Disabled BT!")
+        }
+    }
+
     override fun onDestroy() {
         job?.cancel()
         super.onDestroy()
@@ -136,7 +141,7 @@ class ObdServerService : Service() {
 
     @SuppressLint("MissingPermission")
     fun startAdvertising() {
-        serverLogs.add("Start advertising")
+
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -149,8 +154,15 @@ class ObdServerService : Service() {
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
-        advertiser.startAdvertising(settings, data, SampleAdvertiseCallback)
-        isServerRunning.value = true
+        runCatching {
+            initGattServer()
+            advertiser.startAdvertising(settings, data, SampleAdvertiseCallback)
+            serverLogs.add("Start advertising")
+            isServerRunning.value = true
+        }.onFailure {
+            serverLogs.add("Can't start advertiging, is BT enabled ?")
+            serverLogs.add(it.message ?: "Null message")
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -324,7 +336,10 @@ class ObdServerService : Service() {
 
         // Same as the service but for the characteristic
         val RW_UUID: UUID = UUID.fromString("00001111-0000-1000-8000-00805f9b34fb")
-        val NTF_UUID: UUID = UUID.fromString("00001112-0000-1000-8000-00805f9b34fb")
+        val NTF_UUID: UUID = UUID.fromString("00001112-0000-1000-8000-00805F9B34FB")
+        //necessary for iOS! to be able to enable notify on characteristics
+        //https://stackoverflow.com/questions/24865120/any-way-to-implement-ble-notifications-in-android-l-preview/25508053#25508053
+        val BT_NTF_UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
         // Important: this is just for simplicity, there are better ways to communicate between
         // a service and an activity/view
